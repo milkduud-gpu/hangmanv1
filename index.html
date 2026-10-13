@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hangman Party</title>
+<style>
+  :root {
+    --blue: #3f79b0;
+    --sky: #bfe3f7;
+    --grass: #9ed67a;
+    --cream: #fffaf0;
+    --pink: #ff7eb6;
+    --yellow: #ffd23f;
+    --red: #e5484d;
+    --ink: #24405c;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    font-family: "Comic Sans MS", "Chalkboard SE", "Trebuchet MS", sans-serif;
+    color: var(--ink);
+    background: linear-gradient(var(--sky) 0 75%, var(--grass) 75% 100%);
+  }
+  main {
+    width: 100%;
+    max-width: 460px;
+    background: var(--cream);
+    border: 5px solid var(--pink);
+    border-radius: 28px;
+    padding: 16px 20px 22px;
+    text-align: center;
+    box-shadow: 0 8px 0 #c95a90;
+  }
+  h1 { margin: 0; font-size: 1.6rem; color: var(--pink); letter-spacing: 2px; }
+  .intro { margin: 6px 0 0; font-size: 0.95rem; line-height: 1.35; }
+  svg { width: 200px; height: 200px; }
+  .gallows { stroke: var(--blue); stroke-width: 5; stroke-linecap: round; fill: none; }
+  .buddy { stroke: var(--ink); stroke-width: 4; stroke-linecap: round; fill: none; }
+  #head { fill: var(--yellow); }
+  #face { font-size: 11px; text-anchor: middle; fill: var(--ink); }
+  [data-part] { visibility: hidden; }
+  [data-part].shown { visibility: visible; }
+  #word {
+    font-size: 2rem;
+    font-weight: bold;
+    letter-spacing: 6px;
+    margin: 4px 0 8px;
+    min-height: 2.6rem;
+    color: var(--blue);
+  }
+  #message { min-height: 2.6em; margin: 0 0 8px; font-weight: bold; }
+  #status { margin: 0 0 12px; line-height: 1.6; }
+  #keys { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+  #keys button {
+    width: 38px;
+    height: 38px;
+    font: inherit;
+    font-weight: bold;
+    color: #fff;
+    background: var(--blue);
+    border: none;
+    border-bottom: 4px solid #2a5784;
+    border-radius: 10px;
+    cursor: pointer;
+  }
+  #keys button.hit { background: #4caf50; border-bottom-color: #357a38; }
+  #keys button.miss { background: var(--red); border-bottom-color: #a32d31; }
+  #keys button:disabled { cursor: default; opacity: 0.85; }
+  dialog {
+    border: 5px solid var(--pink);
+    border-radius: 24px;
+    background: var(--cream);
+    color: var(--ink);
+    text-align: center;
+    padding: 24px 32px;
+    font-family: inherit;
+    max-width: 340px;
+  }
+  dialog::backdrop { background: rgba(36, 64, 92, 0.55); }
+  dialog h2 { margin: 0 0 8px; color: var(--pink); }
+  dialog button {
+    font: inherit;
+    font-weight: bold;
+    color: #fff;
+    background: var(--pink);
+    border: none;
+    border-bottom: 5px solid #c95a90;
+    border-radius: 16px;
+    padding: 10px 20px;
+    cursor: pointer;
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>★ HANGMAN PARTY ★</h1>
+  <p class="intro">
+    Guess the secret word one letter at a time.<br>
+    You can miss <b>6</b> times before my little buddy is out!
+  </p>
+
+  <svg viewBox="0 0 200 200" role="img" aria-label="Hangman drawing">
+    <path class="gallows" d="M20 190 H110 M50 190 V15 H130 V40"/>
+    <g class="buddy">
+      <circle id="head" data-part cx="130" cy="58" r="18"/>
+      <text id="face" data-part x="130" y="62"></text>
+      <path data-part d="M130 76 V125"/>
+      <path data-part d="M130 90 L108 108"/>
+      <path data-part d="M130 90 L152 108"/>
+      <path data-part d="M130 125 L112 156"/>
+      <path data-part d="M130 125 L148 156"/>
+    </g>
+  </svg>
+
+  <div id="word" aria-live="polite"></div>
+  <p id="message" aria-live="polite"></p>
+  <p id="status"></p>
+  <div id="keys"></div>
+</main>
+
+<dialog id="result">
+  <h2 id="result-title"></h2>
+  <p id="result-message"></p>
+  <form method="dialog"><button>New game 🎈</button></form>
+</dialog>
+
+<script>
+  const WORDS = [
+    "python", "hangman", "computer", "keyboard", "program", "variable",
+    "function", "network", "monitor", "software", "algorithm", "database",
+    "internet", "terminal", "developer", "compile", "library", "package",
+  ];
+  const MAX_WRONG = 6;
+  const FACES = ["", "^o^", "o_o", "O_O", ">_<", ";_;", "x_x"];
+
+  const wordEl = document.getElementById("word");
+  const messageEl = document.getElementById("message");
+  const statusEl = document.getElementById("status");
+  const keysEl = document.getElementById("keys");
+  const resultEl = document.getElementById("result");
+  const faceEl = document.getElementById("face");
+  const parts = Array.from(document.querySelectorAll("[data-part]"));
+  let word, guessed, wrong, over;
+
+  // The on-screen keyboard is built once.
+  const keyButtons = {};
+  for (const letter of "abcdefghijklmnopqrstuvwxyz") {
+    const b = document.createElement("button");
+    b.textContent = letter.toUpperCase();
+    b.addEventListener("click", () => guess(letter));
+    keysEl.appendChild(b);
+    keyButtons[letter] = b;
+  }
+
+  function newGame() {
+    word = WORDS[Math.floor(Math.random() * WORDS.length)];
+    guessed = new Set();
+    wrong = 0;
+    over = false;
+    for (const b of Object.values(keyButtons)) {
+      b.disabled = false;
+      b.className = "";
+    }
+    messageEl.textContent = "Can you save my little buddy? 🎈";
+    render();
+  }
+
+  function render() {
+    // Parts in order: head, face, body, left arm, right arm, left leg, right leg.
+    // The face appears with the head, so wrong = 1 shows two parts.
+    const shown = wrong === 0 ? 0 : wrong + 1;
+    parts.forEach((p, i) => p.classList.toggle("shown", i < shown));
+    faceEl.textContent = FACES[wrong];
+    wordEl.textContent = word
+      .split("")
+      .map((c) => (guessed.has(c) ? c.toUpperCase() : "_"))
+      .join(" ");
+    const bad = [...guessed].filter((c) => !word.includes(c)).sort().join(" ").toUpperCase();
+    statusEl.innerHTML =
+      "Wrong letters: <b>" + (bad || "-") + "</b><br>" +
+      "Lives: " + "❤️".repeat(MAX_WRONG - wrong) + "🖤".repeat(wrong) +
+      "<br>Guesses remaining: <b>" + (MAX_WRONG - wrong) + "</b>";
+  }
+
+  function endGame(title, message) {
+    over = true;
+    document.getElementById("result-title").textContent = title;
+    document.getElementById("result-message").textContent = message;
+    resultEl.showModal();
+  }
+
+  function guess(letter) {
+    if (over) return;
+    if (guessed.has(letter)) {
+      messageEl.textContent = "🔁 You already tried '" + letter.toUpperCase() + "'!";
+      return;
+    }
+    guessed.add(letter);
+    const hit = word.includes(letter);
+    keyButtons[letter].classList.add(hit ? "hit" : "miss");
+    keyButtons[letter].disabled = true;
+    if (hit) {
+      messageEl.textContent = "✨ Nice! '" + letter.toUpperCase() + "' is in the word!";
+    } else {
+      wrong++;
+      messageEl.textContent = "💥 Oops! No '" + letter.toUpperCase() + "' here!";
+    }
+    render();
+
+    if (word.split("").every((c) => guessed.has(c))) {
+      endGame("🎉 YOU WON! 🎉", "You guessed the word: " + word);
+    } else if (wrong >= MAX_WRONG) {
+      endGame("💀 YOU LOST 💀", "The word was: " + word);
+    }
+  }
+
+  document.addEventListener("keydown", (e) => {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (/^[a-z]$/i.test(e.key) && !resultEl.open) guess(e.key.toLowerCase());
+  });
+
+  // Closing the pop-up (button, Esc) starts a new game.
+  resultEl.addEventListener("close", newGame);
+
+  newGame();
+</script>
+</body>
+</html>
